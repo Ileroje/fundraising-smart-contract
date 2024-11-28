@@ -9,6 +9,7 @@
 (define-constant err-invalid-target (err u104))
 (define-constant err-invalid-donation-id (err u105))
 (define-constant err-refund-not-allowed (err u106)) ;; Error when refund is not allowed
+(define-constant err-donation-id-mismatch (err u107)) ;; Error for donor mismatch
 
 ;; Data Variables
 (define-data-var last-donation-id uint u0)
@@ -54,6 +55,25 @@
             (asserts! (< (var-get total-donations) (var-get donation-target)) err-donation-exceeds-target)
             ;; Return the donation ID
             (ok donation-id))))
+
+(define-public (increase-donation (donation-id uint) (additional-amount uint))
+    (begin
+        ;; Ensure donation is a valid amount
+        (asserts! (is-valid-donation-amount additional-amount) err-invalid-amount)
+        ;; Validate the donation ID and get the existing donation
+        (let ((donation (unwrap-panic (map-get? donation-records donation-id))))
+            ;; Ensure the caller is the donor
+            (asserts! (is-eq tx-sender (get donor donation)) err-donation-id-mismatch)
+            ;; Increase the donation amount
+            (let ((new-amount (+ (get amount donation) additional-amount)))
+                ;; Update the donation record with the new amount
+                (map-set donation-records donation-id {amount: new-amount, donor: tx-sender, refunded: false})
+                ;; Update the total donations
+                (var-set total-donations (+ (var-get total-donations) additional-amount))
+                ;; Check if the new total donations exceed the target
+                (asserts! (< (var-get total-donations) (var-get donation-target)) err-donation-exceeds-target)
+                ;; Return the new donation amount
+                (ok new-amount)))))
 
 (define-public (set-donation-target (target uint))
     (begin
