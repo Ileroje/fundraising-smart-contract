@@ -49,7 +49,7 @@
             (var-set total-donations (+ (var-get total-donations) amount))
             ;; Update the last donation ID
             (var-set last-donation-id donation-id)
-
+            
             ;; Check if donation goal has been met
             (asserts! (< (var-get total-donations) (var-get donation-target)) err-donation-exceeds-target)
             ;; Return the donation ID
@@ -74,3 +74,47 @@
             donation-record (ok donation-record)
             err-donation-not-found)))
 
+(define-public (get-total-donations)
+    (ok (var-get total-donations)))
+
+(define-public (get-donation-target)
+    (ok (var-get donation-target)))
+
+(define-public (get-last-donation-id)
+    (ok (var-get last-donation-id)))
+
+(define-public (request-refund (donation-id uint))
+    (begin
+        ;; Validate the donation ID
+        (asserts! (is-valid-donation-id donation-id) err-invalid-donation-id)
+        ;; Get the donation record
+        (let ((donation (unwrap-panic (map-get? donation-records donation-id))))
+            ;; Ensure the caller is the donor
+            (asserts! (is-eq tx-sender (get donor donation)) err-owner-only)
+            ;; Check if the donation has been refunded already
+            (asserts! (is-eq (get refunded donation) false) err-refund-not-allowed)
+            ;; Ensure the donation hasn't contributed to the target
+            (asserts! (has-reached-target) err-refund-not-allowed)
+            ;; Decrease total donations
+            (var-set total-donations (- (var-get total-donations) (get amount donation)))
+            ;; Mark the donation as refunded
+            (map-set donation-records donation-id {amount: (get amount donation), donor: (get donor donation), refunded: true})
+            ;; Return the refunded amount
+            (ok (get amount donation)))))
+
+;; Read-Only Functions
+(define-read-only (get-donations-for-donor (donor principal))
+    (let ((last-id (var-get last-donation-id)))
+        (ok (filter get-donation-matches 
+            (list last-id)))))
+
+(define-private (get-donation-matches (donation-id uint))
+    (match (map-get? donation-records donation-id)
+        donation-record (is-eq (get donor donation-record) tx-sender)
+        false))
+
+;; Contract initialization
+(begin
+    ;; Initialize the contract's last donation ID and total donations
+    (var-set last-donation-id u0)
+    (var-set total-donations u0))
