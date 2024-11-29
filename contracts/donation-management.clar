@@ -124,6 +124,37 @@
             ;; Return the refunded amount
             (ok (get amount donation)))))
 
+;; Function to cancel a donation before it's processed
+(define-public (cancel-donation (donation-id uint))
+    (begin
+        ;; Validate the donation ID
+        (asserts! (is-valid-donation-id donation-id) err-invalid-donation-id)
+        ;; Get the donation record
+        (let ((donation (unwrap-panic (map-get? donation-records donation-id))))
+            ;; Ensure the caller is the donor
+            (asserts! (is-eq tx-sender (get donor donation)) err-owner-only)
+            ;; Ensure the donation hasn't been refunded
+            (asserts! (is-eq (get refunded donation) false) err-refund-not-allowed)
+            ;; Decrease total donations
+            (var-set total-donations (- (var-get total-donations) (get amount donation)))
+            ;; Remove the donation record
+            (map-delete donation-records donation-id)
+            ;; Return the cancelled donation amount
+            (ok (get amount donation)))))
+
+;; Function to update the donation target with a maximum limit
+(define-public (update-donation-target-with-max (new-target uint) (max-limit uint))
+    (begin
+        ;; Only the contract owner can update the target
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        ;; Validate the new target
+        (asserts! (is-valid-target new-target) err-invalid-target)
+        ;; Ensure the new target doesn't exceed the maximum limit
+        (asserts! (<= new-target max-limit) err-invalid-target)
+        ;; Set the new target
+        (var-set donation-target new-target)
+        (ok new-target)))
+
 ;; Read-Only Functions
 (define-read-only (get-donations-for-donor (donor principal))
     (let ((last-id (var-get last-donation-id)))
@@ -155,3 +186,4 @@
     ;; Initialize the contract's last donation ID and total donations
     (var-set last-donation-id u0)
     (var-set total-donations u0))
+
