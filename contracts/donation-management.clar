@@ -37,6 +37,8 @@
 (define-private (has-reached-target)
     (< (var-get total-donations) (var-get donation-target)))
 
+
+
 ;; Public Functions
 (define-public (donate (amount uint))
     (begin
@@ -132,6 +134,21 @@
     (match (map-get? donation-records donation-id)
         donation-record (is-eq (get donor donation-record) tx-sender)
         false))
+
+(define-read-only (get-total-donations-for-donor (donor principal))
+(let ((last-id (var-get last-donation-id))
+      (donor-total u0))
+    (fold get-donor-donation-total
+        (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9)  ;; Supports first 10 donations for demonstration
+        donor-total)))
+
+(define-private (get-donor-donation-total (donation-id uint) (running-total uint))
+(match (map-get? donation-records donation-id)
+    donation-record
+    (if (is-eq (get donor donation-record) tx-sender)
+        (+ running-total (get amount donation-record))
+        running-total)
+    running-total))
 
 ;; Contract initialization
 (begin
