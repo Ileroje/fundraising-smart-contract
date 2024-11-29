@@ -9,6 +9,7 @@
 (define-constant err-invalid-target (err u104))
 (define-constant err-invalid-donation-id (err u105))
 (define-constant err-refund-not-allowed (err u106)) ;; Error when refund is not allowed
+(define-constant err-donation-id-mismatch (err u107)) ;; Error for donor mismatch
 
 ;; Data Variables
 (define-data-var last-donation-id uint u0)
@@ -36,6 +37,8 @@
 (define-private (has-reached-target)
     (< (var-get total-donations) (var-get donation-target)))
 
+
+
 ;; Public Functions
 (define-public (donate (amount uint))
     (begin
@@ -54,6 +57,25 @@
             (asserts! (< (var-get total-donations) (var-get donation-target)) err-donation-exceeds-target)
             ;; Return the donation ID
             (ok donation-id))))
+
+(define-public (increase-donation (donation-id uint) (additional-amount uint))
+    (begin
+        ;; Ensure donation is a valid amount
+        (asserts! (is-valid-donation-amount additional-amount) err-invalid-amount)
+        ;; Validate the donation ID and get the existing donation
+        (let ((donation (unwrap-panic (map-get? donation-records donation-id))))
+            ;; Ensure the caller is the donor
+            (asserts! (is-eq tx-sender (get donor donation)) err-donation-id-mismatch)
+            ;; Increase the donation amount
+            (let ((new-amount (+ (get amount donation) additional-amount)))
+                ;; Update the donation record with the new amount
+                (map-set donation-records donation-id {amount: new-amount, donor: tx-sender, refunded: false})
+                ;; Update the total donations
+                (var-set total-donations (+ (var-get total-donations) additional-amount))
+                ;; Check if the new total donations exceed the target
+                (asserts! (< (var-get total-donations) (var-get donation-target)) err-donation-exceeds-target)
+                ;; Return the new donation amount
+                (ok new-amount)))))
 
 (define-public (set-donation-target (target uint))
     (begin
@@ -102,6 +124,37 @@
             ;; Return the refunded amount
             (ok (get amount donation)))))
 
+;; Function to cancel a donation before it's processed
+(define-public (cancel-donation (donation-id uint))
+    (begin
+        ;; Validate the donation ID
+        (asserts! (is-valid-donation-id donation-id) err-invalid-donation-id)
+        ;; Get the donation record
+        (let ((donation (unwrap-panic (map-get? donation-records donation-id))))
+            ;; Ensure the caller is the donor
+            (asserts! (is-eq tx-sender (get donor donation)) err-owner-only)
+            ;; Ensure the donation hasn't been refunded
+            (asserts! (is-eq (get refunded donation) false) err-refund-not-allowed)
+            ;; Decrease total donations
+            (var-set total-donations (- (var-get total-donations) (get amount donation)))
+            ;; Remove the donation record
+            (map-delete donation-records donation-id)
+            ;; Return the cancelled donation amount
+            (ok (get amount donation)))))
+
+;; Function to update the donation target with a maximum limit
+(define-public (update-donation-target-with-max (new-target uint) (max-limit uint))
+    (begin
+        ;; Only the contract owner can update the target
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        ;; Validate the new target
+        (asserts! (is-valid-target new-target) err-invalid-target)
+        ;; Ensure the new target doesn't exceed the maximum limit
+        (asserts! (<= new-target max-limit) err-invalid-target)
+        ;; Set the new target
+        (var-set donation-target new-target)
+        (ok new-target)))
+
 ;; Read-Only Functions
 (define-read-only (get-donations-for-donor (donor principal))
     (let ((last-id (var-get last-donation-id)))
@@ -113,8 +166,24 @@
         donation-record (is-eq (get donor donation-record) tx-sender)
         false))
 
+(define-read-only (get-total-donations-for-donor (donor principal))
+(let ((last-id (var-get last-donation-id))
+      (donor-total u0))
+    (fold get-donor-donation-total
+        (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9)  ;; Supports first 10 donations for demonstration
+        donor-total)))
+
+(define-private (get-donor-donation-total (donation-id uint) (running-total uint))
+(match (map-get? donation-records donation-id)
+    donation-record
+    (if (is-eq (get donor donation-record) tx-sender)
+        (+ running-total (get amount donation-record))
+        running-total)
+    running-total))
+
 ;; Contract initialization
 (begin
     ;; Initialize the contract's last donation ID and total donations
     (var-set last-donation-id u0)
     (var-set total-donations u0))
+
